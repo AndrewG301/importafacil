@@ -188,14 +188,14 @@ function ApiKeyModal({ apiKey, onSave, onClose }) {
   return (
     <div style={S.modal} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ ...S.modalBox, maxWidth: 500 }}>
-        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>🤖 Configurar API Key de Gemini (Gratis)</div>
-        <p style={{ fontSize: 13, color: "#94a3b8", marginBottom: 16, lineHeight: 1.7 }}>La IA de Google Gemini analiza fotos y genera descripciones automáticamente. Es completamente gratis.</p>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>🤖 Configurar API Key de OpenRouter (Gratis)</div>
+        <p style={{ fontSize: 13, color: "#94a3b8", marginBottom: 16, lineHeight: 1.7 }}>OpenRouter da acceso a IA gratuita para analizar fotos y generar descripciones.</p>
         <div style={{ background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.2)", borderRadius: 10, padding: "12px 14px", marginBottom: 16, fontSize: 13, lineHeight: 1.9, color: "#c7d2fe" }}>
-          <strong style={{ color: "#a5b4fc" }}>Cómo obtenerla (100% gratis):</strong><br />
-          1. Ve a <strong>aistudio.google.com</strong><br />
-          2. Inicia sesión con tu cuenta Google<br />
-          3. Click en <strong>"Get API Key"</strong> → <strong>"Create API key"</strong><br />
-          4. Copia la key (<code style={{ background: "rgba(255,255,255,0.1)", padding: "1px 5px", borderRadius: 4, fontSize: 12 }}>AIza...</code>)
+          <strong style={{ color: "#a5b4fc" }}>Cómo obtenerla (gratis):</strong><br />
+          1. Ve a <strong>openrouter.ai</strong><br />
+          2. Click en <strong>"Sign Up"</strong> — puedes entrar con Google<br />
+          3. Ve a <strong>"Keys"</strong> → <strong>"Create Key"</strong><br />
+          4. Copia la key (<code style={{ background: "rgba(255,255,255,0.1)", padding: "1px 5px", borderRadius: 4, fontSize: 12 }}>sk-or-...</code>)
         </div>
         <div style={S.field}>
           <span style={S.label}>Tu API Key</span>
@@ -219,7 +219,7 @@ function ApiKeyModal({ apiKey, onSave, onClose }) {
 export default function App() {
   const [tab, setTab] = useState("pedido");
   const [tc, setTc] = useState(() => parseFloat(localStorage.getItem("if_tc")) || 3.75);
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem("if_apikey") || import.meta.env.VITE_GEMINI_KEY || "");
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem("if_apikey") || import.meta.env.VITE_OPENROUTER_KEY || "");
   const [showApiModal, setShowApiModal] = useState(false);
 
   // Pedido actual (borrador en memoria)
@@ -288,32 +288,37 @@ export default function App() {
   // ── API Key ───────────────────────────────────────────────────────────────────
   const guardarApiKey = (k) => { setApiKey(k); localStorage.setItem("if_apikey", k); setShowApiModal(false); };
 
-  // ── Llamar Gemini ─────────────────────────────────────────────────────────────
-  const llamarGemini = async (prompt, base64, mediaType) => {
-    if (!apiKey) { alert("Configura tu API Key de Gemini primero (botón 🤖 IA arriba)."); return null; }
-    const parts = [];
+  // ── Llamar OpenRouter ─────────────────────────────────────────────────────────
+  const llamarOpenRouter = async (prompt, base64, mediaType) => {
+    if (!apiKey) { alert("Configura tu API Key de OpenRouter primero (botón 🤖 IA arriba)."); return null; }
+    const content = [];
     if (base64 && mediaType) {
-      parts.push({ inline_data: { mime_type: mediaType, data: base64 } });
+      content.push({ type: "image_url", image_url: { url: `data:${mediaType};base64,${base64}` } });
     }
-    parts.push({ text: prompt });
-    const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ parts }] }),
-      }
-    );
+    content.push({ type: "text", text: prompt });
+    const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+        "HTTP-Referer": window.location.origin,
+        "X-Title": "ImportaFacil",
+      },
+      body: JSON.stringify({
+        model: "meta-llama/llama-3.2-11b-vision-instruct:free",
+        messages: [{ role: "user", content }],
+      }),
+    });
     const data = await resp.json();
     if (data.error) throw new Error(data.error.message);
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    return data.choices?.[0]?.message?.content || "";
   };
 
   const analizarFoto = async (base64, mediaType) => {
     setAiLoading(true); setAiMsg("🤖 Analizando imagen con IA...");
     try {
-      const text = await llamarGemini(
-        'Eres asistente de importaciones en Perú. Analiza esta imagen y responde SOLO en JSON sin backticks ni texto extra: {"nombre":"nombre comercial atractivo","categoria":"ropa|zapatillas|accesorios","talla_sugerida":"talla típica o vacío","color":"color principal","descripcion":"descripción 2-3 oraciones atractiva para Facebook Marketplace peruano"}',
+      const text = await llamarOpenRouter(
+        'Eres asistente de importaciones en Perú. Analiza esta imagen y responde SOLO en JSON sin backticks ni texto extra, exactamente así: {"nombre":"nombre comercial atractivo del producto","categoria":"ropa|zapatillas|accesorios","talla_sugerida":"talla típica o cadena vacía","color":"color principal","descripcion":"descripción 2-3 oraciones atractiva para Facebook Marketplace peruano"}',
         base64, mediaType
       );
       if (!text) return;
@@ -328,8 +333,8 @@ export default function App() {
     if (!prodForm.nombre) return alert("Ingresa el nombre primero.");
     setAiLoading(true); setAiMsg("🤖 Generando descripción...");
     try {
-      const desc = await llamarGemini(
-        `Genera descripción 2-3 oraciones atractiva para Facebook Marketplace peruano del producto: "${prodForm.nombre}", categoría: ${CAT_LABEL[prodForm.cat] || prodForm.cat}${prodForm.color ? ", color: " + prodForm.color : ""}${prodForm.talla ? ", talla: " + prodForm.talla : ""}. Solo la descripción, sin comillas.`
+      const desc = await llamarOpenRouter(
+        `Genera descripción 2-3 oraciones atractiva y persuasiva para Facebook Marketplace peruano del producto: "${prodForm.nombre}", categoría: ${CAT_LABEL[prodForm.cat] || prodForm.cat}${prodForm.color ? ", color: " + prodForm.color : ""}${prodForm.talla ? ", talla: " + prodForm.talla : ""}. Solo la descripción, sin comillas ni formato extra.`
       );
       if (desc) { setProdForm(f => ({ ...f, desc: desc.trim() })); setAiMsg("✅ Descripción generada."); }
     } catch (e) { setAiMsg("❌ Error: " + e.message); }
