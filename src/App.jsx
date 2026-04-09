@@ -188,14 +188,14 @@ function ApiKeyModal({ apiKey, onSave, onClose }) {
   return (
     <div style={S.modal} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ ...S.modalBox, maxWidth: 500 }}>
-        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>🤖 Configurar API Key de Anthropic</div>
-        <p style={{ fontSize: 13, color: "#94a3b8", marginBottom: 16, lineHeight: 1.7 }}>La IA analiza fotos y genera descripciones automáticamente. Necesitas una API Key gratuita.</p>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>🤖 Configurar API Key de Gemini (Gratis)</div>
+        <p style={{ fontSize: 13, color: "#94a3b8", marginBottom: 16, lineHeight: 1.7 }}>La IA de Google Gemini analiza fotos y genera descripciones automáticamente. Es completamente gratis.</p>
         <div style={{ background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.2)", borderRadius: 10, padding: "12px 14px", marginBottom: 16, fontSize: 13, lineHeight: 1.9, color: "#c7d2fe" }}>
-          <strong style={{ color: "#a5b4fc" }}>Cómo obtenerla (gratis):</strong><br />
-          1. Ve a <strong>console.anthropic.com</strong><br />
-          2. Crea cuenta — incluye créditos de prueba<br />
-          3. Ve a <strong>"API Keys"</strong> → <strong>"Create Key"</strong><br />
-          4. Copia la key (<code style={{ background: "rgba(255,255,255,0.1)", padding: "1px 5px", borderRadius: 4, fontSize: 12 }}>sk-ant-...</code>)
+          <strong style={{ color: "#a5b4fc" }}>Cómo obtenerla (100% gratis):</strong><br />
+          1. Ve a <strong>aistudio.google.com</strong><br />
+          2. Inicia sesión con tu cuenta Google<br />
+          3. Click en <strong>"Get API Key"</strong> → <strong>"Create API key"</strong><br />
+          4. Copia la key (<code style={{ background: "rgba(255,255,255,0.1)", padding: "1px 5px", borderRadius: 4, fontSize: 12 }}>AIza...</code>)
         </div>
         <div style={S.field}>
           <span style={S.label}>Tu API Key</span>
@@ -219,7 +219,7 @@ function ApiKeyModal({ apiKey, onSave, onClose }) {
 export default function App() {
   const [tab, setTab] = useState("pedido");
   const [tc, setTc] = useState(() => parseFloat(localStorage.getItem("if_tc")) || 3.75);
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem("if_apikey") || import.meta.env.VITE_ANTHROPIC_KEY || "");
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem("if_apikey") || import.meta.env.VITE_GEMINI_KEY || "");
   const [showApiModal, setShowApiModal] = useState(false);
 
   // Pedido actual (borrador en memoria)
@@ -288,26 +288,34 @@ export default function App() {
   // ── API Key ───────────────────────────────────────────────────────────────────
   const guardarApiKey = (k) => { setApiKey(k); localStorage.setItem("if_apikey", k); setShowApiModal(false); };
 
-  // ── Llamar IA ─────────────────────────────────────────────────────────────────
-  const llamarIA = async (messages, maxTokens = 800) => {
-    if (!apiKey) { alert("Configura tu API Key primero (botón 🤖 IA arriba)."); return null; }
-    const resp = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-      body: JSON.stringify({ model: "claude-opus-4-5", max_tokens: maxTokens, messages }),
-    });
+  // ── Llamar Gemini ─────────────────────────────────────────────────────────────
+  const llamarGemini = async (prompt, base64, mediaType) => {
+    if (!apiKey) { alert("Configura tu API Key de Gemini primero (botón 🤖 IA arriba)."); return null; }
+    const parts = [];
+    if (base64 && mediaType) {
+      parts.push({ inline_data: { mime_type: mediaType, data: base64 } });
+    }
+    parts.push({ text: prompt });
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts }] }),
+      }
+    );
     const data = await resp.json();
     if (data.error) throw new Error(data.error.message);
-    return data.content?.map(i => i.text || "").join("") || "";
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   };
 
   const analizarFoto = async (base64, mediaType) => {
     setAiLoading(true); setAiMsg("🤖 Analizando imagen con IA...");
     try {
-      const text = await llamarIA([{ role: "user", content: [
-        { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
-        { type: "text", text: 'Eres asistente de importaciones en Perú. Analiza esta imagen y responde SOLO en JSON sin backticks: {"nombre":"nombre comercial atractivo","categoria":"ropa|zapatillas|accesorios","talla_sugerida":"talla típica o vacío","color":"color principal","descripcion":"descripción 2-3 oraciones atractiva para Facebook Marketplace peruano"}' }
-      ]}]);
+      const text = await llamarGemini(
+        'Eres asistente de importaciones en Perú. Analiza esta imagen y responde SOLO en JSON sin backticks ni texto extra: {"nombre":"nombre comercial atractivo","categoria":"ropa|zapatillas|accesorios","talla_sugerida":"talla típica o vacío","color":"color principal","descripcion":"descripción 2-3 oraciones atractiva para Facebook Marketplace peruano"}',
+        base64, mediaType
+      );
       if (!text) return;
       const info = JSON.parse(text.replace(/```json|```/g, "").trim());
       setProdForm(f => ({ ...f, nombre: info.nombre || "", cat: info.categoria || "ropa", talla: info.talla_sugerida || "", color: info.color || "", desc: info.descripcion || "" }));
@@ -320,7 +328,9 @@ export default function App() {
     if (!prodForm.nombre) return alert("Ingresa el nombre primero.");
     setAiLoading(true); setAiMsg("🤖 Generando descripción...");
     try {
-      const desc = await llamarIA([{ role: "user", content: `Genera descripción 2-3 oraciones atractiva para Facebook Marketplace peruano del producto: "${prodForm.nombre}", categoría: ${CAT_LABEL[prodForm.cat] || prodForm.cat}${prodForm.color ? ", color: " + prodForm.color : ""}${prodForm.talla ? ", talla: " + prodForm.talla : ""}. Solo la descripción, sin comillas.` }], 400);
+      const desc = await llamarGemini(
+        `Genera descripción 2-3 oraciones atractiva para Facebook Marketplace peruano del producto: "${prodForm.nombre}", categoría: ${CAT_LABEL[prodForm.cat] || prodForm.cat}${prodForm.color ? ", color: " + prodForm.color : ""}${prodForm.talla ? ", talla: " + prodForm.talla : ""}. Solo la descripción, sin comillas.`
+      );
       if (desc) { setProdForm(f => ({ ...f, desc: desc.trim() })); setAiMsg("✅ Descripción generada."); }
     } catch (e) { setAiMsg("❌ Error: " + e.message); }
     setAiLoading(false);
